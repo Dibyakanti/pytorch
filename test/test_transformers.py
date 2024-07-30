@@ -371,6 +371,22 @@ class TestTransformers(NNTestCase):
             out, _ = mha(X, X, X, attn_mask=attn_mask, key_padding_mask=key_padding_mask, need_weights=False)
             mha.eval()  # enable fast path
             out_fp, _ = mha(X, X, X, attn_mask=attn_mask, key_padding_mask=key_padding_mask, need_weights=False)
+
+            self.assertFalse(torch.isnan(out).any())
+            if torch.isnan(out_fp).any():
+                row_sums = attn_mask.sum(dim=-1)
+                masked_out_rows = (row_sums == 0)
+                masked_out_rows = masked_out_rows.expand(out.shape[:-1])
+                # Slice out the fully masked rows from fastpath and non fastpath
+                out_ref_masked_out = out[masked_out_rows]
+                out_fp_masked_out = out_fp[masked_out_rows]
+
+                out_ref_all_zero = (out_ref_masked_out.abs().sum() == 0)
+                out_all_nan = torch.isnan(out_fp_masked_out).all()
+                self.assertTrue(out_ref_all_zero)
+                self.assertTrue(out_all_nan)
+                out_fp = torch.nan_to_num(out_fp, nan=0.0)
+
             self.assertEqual(out, out_fp)
 
     @parametrize("nhead", [1, 4, 8])
@@ -2077,24 +2093,8 @@ class TestSDPA(NNTestCase):
             if dtype in [torch.bfloat16, torch.float16]:
                 math_ref = math_ref.to(dtype)
 
-            # TODO WE NEED TO UNIFY THESE SEMANTICS
-            # This test the fully masked out rows case
             self.assertFalse(torch.isnan(math_ref).any())
-            if torch.isnan(actual).any():
-                row_sums = attn_mask.sum(dim=-1)
-                masked_out_rows = (row_sums == 0)
-                if attn_mask.dim() == 2:
-                    masked_out_rows = masked_out_rows[None, None, :].expand(math_ref.shape[:-1])
-
-                # Slice out the fully masked rows from expected and actual
-                math_ref_masked_out = math_ref[masked_out_rows]
-                actual_masked_out = actual[masked_out_rows]
-
-                math_ref_all_zero = (math_ref_masked_out.abs().sum() == 0)
-                actual_all_nan = torch.isnan(actual_masked_out).all()
-                self.assertTrue(math_ref_all_zero)
-                self.assertTrue(actual_all_nan)
-                return
+            self.assertFalse(torch.isnan(actual).any())
 
             self.assertEqual(actual, math_ref, atol=tol.atol, rtol=tol.rtol)
 
