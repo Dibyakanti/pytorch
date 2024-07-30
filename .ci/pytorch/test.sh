@@ -440,6 +440,10 @@ pr_time_benchmarks() {
   git submodule sync && git submodule update --init --recursive
   deactivate
   pip show torch
+
+  echo "looking for regressions:"
+  python compare_results.py "$TEST_REPORTS_DIR/pr_time_benchmarks_before.txt" "$TEST_REPORTS_DIR/pr_time_benchmarks_after.txt"
+
 }
 
 
